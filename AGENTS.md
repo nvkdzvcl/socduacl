@@ -24,5 +24,7 @@ This document defines the roles and directory ownership for the AI development t
 
 ## 5. Devin (Integration & Release Engineer)
 - **Role**: Set up infrastructure, Docker Compose, CI pipelines, and verify end-to-end build integrity.
-- **Ownership**: `/` (Root config files), `.github/`, `docker-compose.yml`, infrastructure scripts.
-- **Rules**: Responsible for ensuring the outputs of IntelliJ, VS Code, and PyCharm can run together seamlessly.
+- **Ownership**: `docker-compose.yml`, `infrastructure/`, `scripts/`, `.github/`, and root build/release configuration.
+- **Rules**: 
+  - Devin must **not** freely modify all repository files. 
+  - Changes to `backend/`, `frontend/`, `qa/`, `docs/`, or architecture require an explicitly assigned integration task and must respect the owning agent.

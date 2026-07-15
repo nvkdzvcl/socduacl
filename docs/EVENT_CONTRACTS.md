@@ -1,6 +1,7 @@
 # Socduacl - Event Contracts (RabbitMQ)
 
 RabbitMQ is used for asynchronous domain events to decouple modules.
+**Important**: Events are NEVER published directly during a business transaction. They are written to the `outbox_events` table and published asynchronously by the Outbox Publisher.
 
 ## 1. Exchanges
 - `socduacl.topic` (Type: Topic): Main exchange for routing all domain events.
@@ -27,8 +28,8 @@ RabbitMQ is used for asynchronous domain events to decouple modules.
   }
   ```
 - **Consumers**: 
-  - `Inventory` module: Deduct stock for the ordered variants.
   - `Notification` module: Send order confirmation email.
+  - `Analytics` module (Future).
 
 ### `OrderStatusChangedEvent`
 - **Routing Key**: `sales.order.status_changed`
@@ -43,14 +44,22 @@ RabbitMQ is used for asynchronous domain events to decouple modules.
   ```
 - **Consumers**:
   - `Notification` module: Send update to customer.
-  - `Inventory` module: If status is `CANCELLED`, restore stock.
+  - *(Note: Stock restoration on CANCELLED is done synchronously via DB transaction, not asynchronously via this event, to prevent race conditions).*
 
-## 3. Queues
-Queues are bound to the `socduacl.topic` exchange with specific binding keys.
-- `inventory.order_created.queue` bound to `sales.order.created`
-- `notification.order_created.queue` bound to `sales.order.created`
-- `inventory.order_cancelled.queue` bound to `sales.order.status_changed` (filtered by payload or specific routing key like `sales.order.cancelled`)
+### `ProductUpdatedEvent`
+- **Routing Key**: `catalog.product.updated`
+- **Payload**:
+  ```json
+  {
+    "eventId": "uuid",
+    "productId": "uuid",
+    "slug": "product-slug"
+  }
+  ```
+- **Consumers**:
+  - `Cache` invalidator: Removes `cache:catalog:product:{slug}` from Redis.
 
-## 4. Error Handling
-- Dead Letter Exchanges (DLX) must be configured for all queues.
-- Retry mechanisms with exponential backoff should be implemented using Spring AMQP.
+## 3. Queues & Consumer Requirements
+- Queues are bound to the `socduacl.topic` exchange.
+- **Idempotency**: Because the Outbox Publisher might retry sending an event if RabbitMQ doesn't ACK in time, consumers **must** be idempotent. They should check the `idempotent_consumer_log` table using the `eventId` before processing.
+- **Dead Letter Exchanges (DLX)**: Must be configured for all queues to catch poison messages.
