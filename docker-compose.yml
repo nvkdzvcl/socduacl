@@ -1,0 +1,125 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: socduacl-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-socduacl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-socduacl_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-socduacl_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - socduacl-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-socduacl} -d ${POSTGRES_DB:-socduacl_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: socduacl-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - socduacl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: socduacl-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-socduacl}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-socduacl_secret}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - socduacl-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: socduacl-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-socduacl}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-socduacl_secret}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - socduacl-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio-setup:
+    image: minio/mc:latest
+    container_name: socduacl-minio-setup
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-socduacl}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-socduacl_secret}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mc alias set myminio http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do
+          echo "Waiting for MinIO to be ready..."
+          sleep 5
+        done
+        
+        # Create bucket if it doesn't exist
+        if ! mc ls myminio/socduacl-public > /dev/null 2>&1; then
+          mc mb myminio/socduacl-public
+          echo "Bucket socduacl-public created"
+        else
+          echo "Bucket socduacl-public already exists"
+        fi
+        
+        # Set public-read policy on the bucket
+        mc anonymous set download myminio/socduacl-public
+        echo "Public-read policy applied to socduacl-public"
+        
+        echo "MinIO setup completed successfully"
+    networks:
+      - socduacl-network
+    depends_on:
+      - minio
+    restart: "no"
+
+networks:
+  socduacl-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  minio_data:
+    driver: local
